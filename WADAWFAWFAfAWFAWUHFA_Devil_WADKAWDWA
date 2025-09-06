@@ -1,0 +1,1093 @@
+local _PRIVATE = {}
+if rawget(_G, "WhiteListSystemInitialized") then
+    return
+end
+rawset(_G, "WhiteListSystemInitialized", true)
+_PRIVATE.initialized = true
+_PRIVATE.executed = false
+
+if not (type(game) == "userdata" and game:IsA("DataModel")) then
+    return
+end
+
+local function lockTable(t)
+    if type(t) ~= "table" then return end
+    local mt = {
+        __newindex = function(_, k, v)
+            error("ProtectedTable: write denied", 2)
+        end,
+        __metatable = false
+    }
+    setmetatable(t, mt)
+end
+
+local function ValidateEnvironment()
+    if not pcall(function() return game:GetService("Players") end) then
+        return false, "no_Players_service"
+    end
+    
+    if not pcall(function() return game:GetService("HttpService") end) then
+        return false, "no_HttpService"
+    end
+    
+    local ok = pcall(function() return tostring(collectgarbage("count")) end)
+    if not ok then return false, "gc_unavailable" end
+    
+    return true
+end
+
+local function AntiTamperExecute(code)
+    if type(code) ~= "string" then return false, "code_type_error" end
+    
+    local env = {}
+    env.assert = assert
+    env.pcall = pcall
+    env.xpcall = xpcall
+    env.ipairs = ipairs
+    env.pairs = pairs
+    env.type = type
+    env.tonumber = tonumber
+    env.tostring = tostring
+    env.next = next
+    env.select = select
+    env.unpack = unpack or table.unpack
+    env.math = math
+    env.string = string
+    env.table = table
+    env.coroutine = coroutine
+    env.wait = wait
+    env.tick = tick
+    env.os = { time = os.time }
+    
+    setmetatable(env, {
+        __index = function(_, k)
+            if type(k) == "string" then
+                local ok, serv = pcall(function() return game:GetService(k) end)
+                if ok and serv then return serv end
+            end
+            return nil
+        end,
+        __metatable = false
+    })
+
+    local fn, e = loadstring(code)
+    if not fn then return false, ("load_err:" .. tostring(e)) end
+    setfenv(fn, env)
+    local ok, r = pcall(fn)
+    if not ok then return false, ("exec_err:" .. tostring(r)) end
+    return true, r
+end
+
+local function GetDeviceId()
+    local ok, id = pcall(function()
+        local Analytics = game:GetService("RbxAnalyticsService")
+        if Analytics and type(Analytics.GetClientId) == "function" then
+            return Analytics:GetClientId()
+        end
+        return nil
+    end)
+    if ok and type(id) == "string" and #id > 0 then
+        return id
+    end
+    return nil
+end
+
+local function ExecuteMainScript()
+    if _PRIVATE.executed then return end
+    _PRIVATE.executed = true
+
+    -- 这里直接嵌入主脚本代码
+    local mainScriptCode = [[
+local SimpleUILibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/pfnfs/wafuhif7yaswhuafywf8ahowfua/refs/heads/main/awdafwawfwawfafwfawuifghuafhafbiauw8fa8w07846273ajfdajd"))()
+local UI = SimpleUILibrary.Create("MyUI", nil, "Mini Script Studio")
+
+local newGui = Instance.new("ScreenGui")
+newGui.Name = "NewGui"
+function Notify(Title1, Text1, Icon1, Time1)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+      Title = Title1,
+      Text = Text1,
+      Icon = Icon1,
+      Duration = Time1,
+    })
+  end
+  Notify("已为你选择游戏", "恶魔学", "rbxassetid://17360377302", 3)
+
+local tap = UI:AddTap("主要功能")
+
+local itemOptions = {}
+local selectedItem = nil
+local dropdown = nil
+
+do
+    local itemsFolder = workspace:FindFirstChild("Items")
+    if itemsFolder then
+        for _, model in ipairs(itemsFolder:GetChildren()) do
+            if model:IsA("Model") then
+                local itemName = model:GetAttribute("ItemName")
+                if itemName then
+                    table.insert(itemOptions, itemName)
+                end
+            end
+        end
+    end
+end
+
+-- 初始化只创建一次
+dropdown = tap:AddDropdown("选择物品", itemOptions, selectedItem, function(selected)
+    selectedItem = selected
+    game.StarterGui:SetCore("SendNotification", {
+        Title = "选择物品",
+        Text = "你选择了: " .. tostring(selectedItem),
+        Duration = 3
+    })
+end)
+
+-- ===== 辅助：尝试在已有 dropdown 上就地更新选项（不会再调用 AddDropdown） =====
+local function updateDropdownInPlace(dropdownObj, options, currentSelected)
+    -- 优先使用库提供的方法（若存在）
+    if dropdownObj and type(dropdownObj.SetOptions) == "function" then
+        pcall(function()
+            dropdownObj:SetOptions(options, currentSelected)
+        end)
+        return true
+    end
+
+    -- 如果没有 SetOptions，尝试在 dropdownObj 表里面找到 GUI Instance
+    local guiRoot = nil
+    if type(dropdownObj) == "table" then
+        for k, v in pairs(dropdownObj) do
+            if typeof(v) == "Instance" and v:IsA("GuiObject") then
+                guiRoot = v
+                break
+            end
+        end
+    end
+
+    -- 如果还没找到，尝试在 PlayerGui 中通过文字“选择物品”去匹配（兼容不同实现）
+    if not guiRoot then
+        local player = game.Players.LocalPlayer
+        if player and player:FindFirstChild("PlayerGui") then
+            for _, obj in ipairs(player.PlayerGui:GetDescendants()) do
+                if (obj:IsA("TextButton") or obj:IsA("TextLabel")) and obj.Text == "选择物品" then
+                    guiRoot = obj.Parent or obj
+                    break
+                end
+            end
+        end
+    end
+
+    if not guiRoot then
+        -- 无法定位到 GUI（返回 false，外面可以打印 debug info）
+        return false
+    end
+
+    -- 在 guiRoot 中找到用于显示列表的容器（优先 ScrollingFrame）
+    local listFrame = nil
+    for _, d in ipairs(guiRoot:GetDescendants()) do
+        if d:IsA("ScrollingFrame") then
+            listFrame = d
+            break
+        end
+    end
+    -- 尝试按名字猜测
+    if not listFrame then
+        for _, d in ipairs(guiRoot:GetDescendants()) do
+            if d:IsA("Frame") and (d.Name:lower():find("list") or d.Name:lower():find("drop")) then
+                listFrame = d
+                break
+            end
+        end
+    end
+
+    if not listFrame then
+        -- 没找到列表容器，仍然失败
+        return false
+    end
+
+    -- 找到模板（若有），否则我们会创建新的按钮
+    local template = nil
+    for _, c in ipairs(listFrame:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("TextLabel") then
+            template = c
+            break
+        end
+    end
+
+    -- 清除旧项目（但保留模板）
+    for _, c in ipairs(listFrame:GetChildren()) do
+        if c ~= template then
+            c:Destroy()
+        end
+    end
+
+    if template then
+        template.Visible = false
+    end
+
+    -- 找到头部显示选中项的 label/button（用于把选择的文字显示到下拉头）
+    local headerLabel = nil
+    for _, d in ipairs(guiRoot:GetChildren()) do
+        if d:IsA("TextLabel") or d:IsA("TextButton") then
+            if d.Text ~= "" and d.Text ~= "选择物品" then
+                headerLabel = d
+                break
+            end
+        end
+    end
+    -- 作为兜底，再搜索所有 descendants 找一个不是 list 项的 TextLabel/Button 作为 header
+    if not headerLabel then
+        for _, d in ipairs(guiRoot:GetDescendants()) do
+            if (d:IsA("TextLabel") or d:IsA("TextButton")) and not d:IsDescendantOf(listFrame) then
+                headerLabel = d
+                break
+            end
+        end
+    end
+
+    -- 生成新项目按钮
+    for i, opt in ipairs(options) do
+        local btn
+        if template then
+            btn = template:Clone()
+            btn.Visible = true
+            btn.Parent = listFrame
+        else
+            btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 0, 30)
+            btn.AutoButtonColor = true
+            btn.Text = ""
+            btn.BackgroundTransparency = 0.3
+            btn.BorderSizePixel = 0
+            btn.Parent = listFrame
+        end
+
+        btn.Text = tostring(opt)
+        btn.LayoutOrder = i
+
+        btn.MouseButton1Click:Connect(function()
+            selectedItem = opt
+            -- 更新头部显示（若存在）
+            if headerLabel and (headerLabel:IsA("TextLabel") or headerLabel:IsA("TextButton")) then
+                pcall(function()
+                    headerLabel.Text = tostring(selectedItem)
+                end)
+            end
+            -- 发送通知
+            pcall(function()
+                game.StarterGui:SetCore("SendNotification", {
+                    Title = "选择物品",
+                    Text = "你选择了: " .. tostring(selectedItem),
+                    Duration = 3
+                })
+            end)
+        end)
+    end
+
+    -- 如果当前选中项已不在新列表中，清空 header 显示
+    local stillExists = false
+    for _, v in ipairs(options) do
+        if v == currentSelected then
+            stillExists = true
+            break
+        end
+    end
+    if not stillExists then
+        selectedItem = nil
+        if headerLabel then
+            pcall(function()
+                headerLabel.Text = "选择物品"
+            end)
+        end
+    end
+
+    return true
+end
+
+-- ===== 实时更新物品列表（只调用 updateDropdownInPlace，绝不再 AddDropdown） =====
+task.spawn(function()
+    while task.wait(1) do
+        local itemsFolder = workspace:FindFirstChild("Items")
+        if not itemsFolder then
+            -- 如果没有 Items，直接清空本地 options（但不创建新的 dropdown）
+            if #itemOptions > 0 then
+                itemOptions = {}
+                updateDropdownInPlace(dropdown, itemOptions, selectedItem)
+            end
+            continue
+        end
+
+        local newList = {}
+        for _, model in ipairs(itemsFolder:GetChildren()) do
+            if model:IsA("Model") then
+                local itemName = model:GetAttribute("ItemName")
+                if itemName then
+                    table.insert(newList, itemName)
+                end
+            end
+        end
+
+        -- 比较是否变化
+        local changed = false
+        if #newList ~= #itemOptions then
+            changed = true
+        else
+            for i, v in ipairs(newList) do
+                if v ~= itemOptions[i] then
+                    changed = true
+                    break
+                end
+            end
+        end
+
+        if changed then
+            itemOptions = newList
+            local ok = pcall(function()
+                -- 仅尝试就地更新（绝不 AddDropdown）
+                local success = updateDropdownInPlace(dropdown, itemOptions, selectedItem)
+                if not success then
+                    -- 无法直接更新（可能库结构太特殊），打印调试信息帮助诊断（不会创建新下拉）
+                    warn("[DropdownUpdate] 无法找到下拉 GUI，下面打印 dropdown 的字段供调试：")
+                    if type(dropdown) == "table" then
+                        for k, v in pairs(dropdown) do
+                            warn("  key:", tostring(k), " type:", typeof(v))
+                        end
+                    else
+                        warn(" dropdown type:", typeof(dropdown))
+                    end
+                end
+            end)
+            if not ok then
+                warn("[DropdownUpdate] 更新过程出错，但脚本不会创建新下拉以避免重复。")
+            end
+        end
+    end
+end)
+
+-- 拾取按钮（不变）
+tap:AddButton("拿取", function()
+    if not selectedItem then
+        game.StarterGui:SetCore("SendNotification", {
+            Title = "提示",
+            Text = "请先选择一个物品！",
+            Duration = 3
+        })
+        return
+    end
+
+    local itemsFolder = workspace:FindFirstChild("Items")
+    if not itemsFolder then return end
+
+    for _, model in ipairs(itemsFolder:GetChildren()) do
+        if model:IsA("Model") and model:GetAttribute("ItemName") == selectedItem then
+            local prompt = model:FindFirstChild("ItemPrompt", true)
+            if prompt and prompt:IsA("ProximityPrompt") then
+                prompt.MaxActivationDistance = 1e10
+                local player = game.Players.LocalPlayer
+                local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                if root and model:FindFirstChild("PrimaryPart") then
+                    root.CFrame = CFrame.new(root.Position, model.PrimaryPart.Position)
+                elseif root and model:FindFirstChildWhichIsA("BasePart") then
+                    root.CFrame = CFrame.new(root.Position, model:FindFirstChildWhichIsA("BasePart").Position)
+                end
+                fireproximityprompt(prompt)
+                break
+            end
+        end
+    end
+end)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+local speedEnabled = false
+local currentSpeed = 16 -- 默认速度
+
+local function applySpeed()
+local character = player.Character
+if not character then return end
+local humanoid = character:FindFirstChildOfClass("Humanoid")
+if humanoid then
+    humanoid.WalkSpeed = currentSpeed
+end
+end
+
+-- 开关切换
+local speedToggle = tap:AddToggle("加速开关", false, function(state)
+speedEnabled = state
+currentSpeed = state and 40 or 16
+applySpeed()
+end)
+
+-- 监听角色生成，自动应用速度
+player.CharacterAdded:Connect(function(char)
+-- 等待 Humanoid 加载完成
+local humanoid = char:WaitForChild("Humanoid", 5)
+if humanoid then
+    applySpeed()
+end
+end)
+
+-- 玩家已有角色时，立即应用速度
+if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+applySpeed()
+end
+
+tap:AddToggle("穿墙", false, function(NC)
+local Character = player.Character or player.CharacterAdded:Wait()
+
+if Stepped then
+    Stepped:Disconnect()
+end
+
+Stepped = game:GetService("RunService").Stepped:Connect(function()
+    if Character then
+        for _, v in pairs(Character:GetChildren()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = not NC
+            end
+        end
+    end
+end)
+end)
+
+local Lighting = game:GetService("Lighting")
+tap:AddToggle("夜视仪", false, function(state)
+    local Lighting = game:GetService("Lighting")
+    if state then
+        Lighting.Ambient = Color3.fromRGB(0, 255, 0)
+        Lighting.OutdoorAmbient = Color3.fromRGB(0, 255, 0)
+        Lighting.Brightness = 5
+        Lighting.ColorShift_Top = Color3.fromRGB(0, 100, 0)
+        Lighting.ColorShift_Bottom = Color3.fromRGB(0, 100, 0)
+    else
+        Lighting.Ambient = Color3.fromRGB(128, 128, 128)
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        Lighting.Brightness = 2
+        Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+        Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+    end
+end) 
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+tap:AddToggle("远程幽灵盒", false, function(state)
+    local gui = player:WaitForChild("PlayerGui"):FindFirstChild("SpiritBoxQuestions")
+    if gui then
+        gui.Enabled = state
+    end
+end)
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+tap:AddToggle("远程摄像头", false, function(state)
+    local gui = player:WaitForChild("PlayerGui"):FindFirstChild("VideoCameraOverlay")
+    if gui then
+        gui.Enabled = state
+    end
+end)
+local Workspace = workspace.Parent:GetService("Workspace")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- 获取 Ghost
+local ghost = Workspace:FindFirstChild("Ghost")
+if not ghost then
+warn("找不到 Ghost")
+return
+end
+
+-- 颜色 & 透视设置（只执行一次）
+for _, part in ipairs(ghost:GetDescendants()) do
+if part:IsA("BasePart") then
+    part.Color = Color3.fromRGB(0, 100, 0) -- 深绿色
+    part.Transparency = 0.3
+    part.Material = Enum.Material.ForceField
+elseif part:IsA("Decal") or part:IsA("Texture") then
+    part.Transparency = 1
+end
+end
+
+local rootPart = ghost:FindFirstChildWhichIsA("BasePart")
+if not rootPart then
+warn("幽灵没有有效的 BasePart")
+return
+end
+
+-- 创建 BillboardGui（固定大小，不随距离缩放）
+local billboard = Instance.new("BillboardGui")
+billboard.Size = UDim2.new(0, 120, 0, 30) -- 缩小尺寸
+billboard.AlwaysOnTop = true
+billboard.StudsOffset = Vector3.new(0, 3, 0)
+billboard.Parent = rootPart
+
+-- 显示文字
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, 0, 1, 0)
+label.BackgroundTransparency = 1
+label.TextColor3 = Color3.new(0, 1, 0) -- 绿色文字
+label.TextScaled = true
+label.Font = Enum.Font.SourceSansBold
+label.Parent = billboard
+
+-- 默认隐藏
+billboard.Enabled = false
+
+-- 控制更新任务的变量
+local updateTask
+
+-- 开关函数
+tap:AddToggle("幽灵透视", false, function(state)
+if state then
+    billboard.Enabled = true
+    -- 启动实时更新距离协程
+    updateTask = task.spawn(function()
+        while billboard.Enabled and billboard.Parent do
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if rootPart and hrp then
+                local dist = (rootPart.Position - hrp.Position).Magnitude
+                label.Text = string.format("幽灵 [%.1fm]", dist)
+            else
+                label.Text = "幽灵"
+            end
+            task.wait(0.2)
+        end
+    end)
+else
+    -- 关闭显示和更新
+    billboard.Enabled = false
+    -- 停止更新，updateTask 协程会自动结束
+    updateTask = nil
+end
+end)
+
+local Workspace = game:GetService("Workspace")
+local frame = Workspace:WaitForChild("Map"):WaitForChild("FuseBox"):WaitForChild("Frame")
+
+local Highlight = Instance.new("Highlight")
+Highlight.Adornee = frame
+Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+Highlight.FillColor = Color3.fromRGB(0, 100, 0)
+Highlight.OutlineColor = Color3.fromRGB(0, 150, 0)
+
+tap:AddToggle("发电机透视", false, function(state)
+if state then
+    -- 开启时将高亮Parent设置为frame，让其生效显示
+    Highlight.Parent = frame
+else
+    -- 关闭时移除高亮
+    Highlight.Parent = nil
+end
+end)
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local workspace = game:GetService("Workspace")
+
+-- “鬼房位置”开关
+tap:AddToggle("鬼房位置", false, function(state)
+    if state then
+        local ghost = workspace:FindFirstChild("Ghost")
+        if not ghost then
+            warn("找不到 Ghost")
+            return
+        end
+        local favoriteRoom = ghost:GetAttribute("FavoriteRoom") or "未知房间"
+
+        local screenGui = playerGui:FindFirstChild("GhostRoomGui")
+        if not screenGui then
+            screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "GhostRoomGui"
+            screenGui.Parent = playerGui
+            screenGui.ResetOnSpawn = false
+        end
+
+        local roomLabel = screenGui:FindFirstChild("GhostRoomLabel")
+        if not roomLabel then
+            roomLabel = Instance.new("TextLabel")
+            roomLabel.Name = "GhostRoomLabel"
+            roomLabel.Parent = screenGui
+            roomLabel.BackgroundTransparency = 1
+            roomLabel.TextColor3 = Color3.new(1, 1, 1)
+            roomLabel.TextStrokeTransparency = 0
+            roomLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            roomLabel.Font = Enum.Font.SourceSansBold
+            roomLabel.TextSize = 24
+            roomLabel.Size = UDim2.new(0, 220, 0, 40)
+            roomLabel.AnchorPoint = Vector2.new(1, 0)
+            roomLabel.Position = UDim2.new(1, -10, 0, 50)
+            roomLabel.ZIndex = 50
+        end
+        roomLabel.Text = "鬼房位置：" .. favoriteRoom
+    else
+        local screenGui = playerGui:FindFirstChild("GhostRoomGui")
+        if screenGui then
+            local roomLabel = screenGui:FindFirstChild("GhostRoomLabel")
+            if roomLabel then
+                roomLabel:Destroy()
+            end
+        end
+    end
+end)
+
+-- “幽灵年龄”开关
+tap:AddToggle("幽灵年龄", false, function(state)
+    if state then
+        local ghost = workspace:FindFirstChild("Ghost")
+        if not ghost then
+            warn("找不到 Ghost")
+            return
+        end
+        local age = ghost:GetAttribute("Age")
+        local ageText = age and tostring(age) or "未知"
+
+        local screenGui = playerGui:FindFirstChild("GhostRoomGui")
+        if not screenGui then
+            screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "GhostRoomGui"
+            screenGui.Parent = playerGui
+            screenGui.ResetOnSpawn = false
+        end
+
+        local ageLabel = screenGui:FindFirstChild("GhostAgeLabel")
+        if not ageLabel then
+            ageLabel = Instance.new("TextLabel")
+            ageLabel.Name = "GhostAgeLabel"
+            ageLabel.Parent = screenGui
+            ageLabel.BackgroundTransparency = 1
+            ageLabel.TextColor3 = Color3.new(1, 1, 1)
+            ageLabel.TextStrokeTransparency = 0
+            ageLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            ageLabel.Font = Enum.Font.SourceSansBold
+            ageLabel.TextSize = 24
+            ageLabel.Size = UDim2.new(0, 220, 0, 40)
+            ageLabel.AnchorPoint = Vector2.new(1, 0)
+            ageLabel.Position = UDim2.new(1, -10, 0, 100)
+            ageLabel.ZIndex = 50
+        end
+        ageLabel.Text = "幽灵年龄：" .. ageText
+    else
+        local screenGui = playerGui:FindFirstChild("GhostRoomGui")
+        if screenGui then
+            local ageLabel = screenGui:FindFirstChild("GhostAgeLabel")
+            if ageLabel then
+                ageLabel:Destroy()
+            end
+        end
+    end
+end)
+
+-- “幽灵性别”开关
+tap:AddToggle("幽灵性别", false, function(state)
+    if state then
+        local ghost = workspace:FindFirstChild("Ghost")
+        if not ghost then
+            warn("找不到 Ghost")
+            return
+        end
+        local gender = ghost:GetAttribute("Gender") or "未知"
+
+        local screenGui = playerGui:FindFirstChild("GhostRoomGui")
+        if not screenGui then
+            screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "GhostRoomGui"
+            screenGui.Parent = playerGui
+            screenGui.ResetOnSpawn = false
+        end
+
+        local genderLabel = screenGui:FindFirstChild("GhostGenderLabel")
+        if not genderLabel then
+            genderLabel = Instance.new("TextLabel")
+            genderLabel.Name = "GhostGenderLabel"
+            genderLabel.Parent = screenGui
+            genderLabel.BackgroundTransparency = 1
+            genderLabel.TextColor3 = Color3.new(1, 1, 1)
+            genderLabel.TextStrokeTransparency = 0
+            genderLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            genderLabel.Font = Enum.Font.SourceSansBold
+            genderLabel.TextSize = 24
+            genderLabel.Size = UDim2.new(0, 220, 0, 40)
+            genderLabel.AnchorPoint = Vector2.new(1, 0)
+            genderLabel.Position = UDim2.new(1, -10, 0, 150) -- 比“幽灵年龄”下方50像素
+            genderLabel.ZIndex = 50
+        end
+        genderLabel.Text = "幽灵性别：" .. gender
+    else
+        local screenGui = playerGui:FindFirstChild("GhostRoomGui")
+        if screenGui then
+            local genderLabel = screenGui:FindFirstChild("GhostGenderLabel")
+            if genderLabel then
+                genderLabel:Destroy()
+            end
+        end
+    end
+end)
+
+local Workspace = workspace.Parent:GetService("Workspace")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- 互动次数计数器的变量（放外面，供开关使用）
+local screenGui
+local frame
+local counterLabel
+local updateTask
+
+tap:AddToggle("互动次数计数器", false, function(state)
+    if state then
+        -- 创建界面（如果之前已创建就不重复创建）
+        if not screenGui then
+            screenGui = Instance.new("ScreenGui")
+            screenGui.Name = "GhostTrackerCounterGUI"
+            screenGui.ResetOnSpawn = false
+            screenGui.Parent = playerGui
+
+            frame = Instance.new("Frame")
+            frame.Name = "CounterFrame"
+            frame.Size = UDim2.new(0, 180, 0, 40)
+            frame.Position = UDim2.new(1, -190, 0, 20) -- 右上角
+            frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            frame.BackgroundTransparency = 0.3
+            frame.BorderSizePixel = 0
+            frame.Parent = screenGui
+            frame.ClipsDescendants = true
+            frame.AnchorPoint = Vector2.new(1, 0)
+
+            local uicorner = Instance.new("UICorner")
+            uicorner.CornerRadius = UDim.new(0, 12)
+            uicorner.Parent = frame
+
+            counterLabel = Instance.new("TextLabel")
+            counterLabel.Size = UDim2.new(1, -20, 1, 0)
+            counterLabel.Position = UDim2.new(0, 10, 0, 0)
+            counterLabel.BackgroundTransparency = 1
+            counterLabel.TextColor3 = Color3.fromRGB(255, 221, 51)
+            counterLabel.TextStrokeTransparency = 0.5
+            counterLabel.TextScaled = true
+            counterLabel.Font = Enum.Font.GothamBold
+            counterLabel.TextXAlignment = Enum.TextXAlignment.Left
+            counterLabel.Text = "互动次数: 0"
+            counterLabel.Parent = frame
+        end
+
+        screenGui.Enabled = true
+
+        -- 启动更新计数协程
+        updateTask = task.spawn(function()
+            while screenGui.Enabled do
+                local doors = Workspace:FindFirstChild("Doors")
+                local count = 0
+                if doors then
+                    for _, obj in pairs(doors:GetDescendants()) do
+                        if obj:IsA("BasePart") and obj.Name == "GhostTracker" then
+                            count += 1
+                        end
+                    end
+                end
+                if counterLabel then
+                    counterLabel.Text = "互动次数: " .. count
+                end
+                task.wait(0.5)
+            end
+        end)
+
+    else
+        if screenGui then
+            screenGui.Enabled = false
+        end
+        updateTask = nil
+    end
+end)    
+
+local Workspace = workspace.Parent:GetService("Workspace")
+local ItemsFolder = Workspace:WaitForChild("Items")
+local RunService = game:GetService("RunService")
+
+local HIGHLIGHT_COLOR = Color3.fromRGB(0, 255, 0)
+local highlightedModels = {}
+local updateConnection -- 用来保存 Heartbeat 事件连接
+
+-- 创建名字标签
+local function createNameTag(model, text)
+local part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+if not part then return end
+if part:FindFirstChild("NameBillboardGui") then return end
+
+local billboard = Instance.new("BillboardGui")
+billboard.Name = "NameBillboardGui"
+billboard.Adornee = part
+billboard.Size = UDim2.new(0, 150, 0, 30)  -- 固定像素大小
+billboard.StudsOffset = Vector3.new(0, 2, 0)
+billboard.AlwaysOnTop = true
+billboard.Parent = model
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, 0, 1, 0)
+label.BackgroundTransparency = 1  -- 去掉黑底，完全透明
+label.TextColor3 = HIGHLIGHT_COLOR
+label.TextStrokeTransparency = 0
+label.TextStrokeColor3 = Color3.new(0, 0, 0)
+label.Font = Enum.Font.GothamBold
+label.TextScaled = true
+label.Text = text
+label.Parent = billboard
+end
+
+-- 给模型加高亮
+local function highlightModel(model)
+if highlightedModels[model] then return end
+
+local highlight = Instance.new("Highlight")
+highlight.Adornee = model
+highlight.FillColor = HIGHLIGHT_COLOR
+highlight.FillTransparency = 0.6
+highlight.OutlineColor = HIGHLIGHT_COLOR
+highlight.OutlineTransparency = 0
+highlight.Parent = model
+
+highlightedModels[model] = highlight
+end
+
+-- 清理所有高亮和标签
+local function clearHighlights()
+for model, highlight in pairs(highlightedModels) do
+    if highlight and highlight.Parent then
+        highlight:Destroy()
+    end
+end
+highlightedModels = {}
+
+for _, model in ipairs(ItemsFolder:GetChildren()) do
+    if model:IsA("Model") then
+        local nameGui = model:FindFirstChild("NameBillboardGui")
+        if nameGui then
+            nameGui:Destroy()
+        end
+    end
+end
+end
+
+-- 检测和高亮函数
+local function checkItems()
+for _, model in ipairs(ItemsFolder:GetChildren()) do
+    if model:IsA("Model") then
+        local itemName = model:GetAttribute("ItemName")
+        if itemName and itemName:lower() == "energy drink" then
+            highlightModel(model)
+            createNameTag(model, "能量饮料")
+        else
+            if highlightedModels[model] then
+                highlightedModels[model]:Destroy()
+                highlightedModels[model] = nil
+            end
+            local nameGui = model:FindFirstChild("NameBillboardGui")
+            if nameGui then
+                nameGui:Destroy()
+            end
+        end
+    end
+end
+end
+
+-- 添加开关
+tap:AddToggle("能量饮料高亮", false, function(state)
+if state then
+    -- 开启时，连接 Heartbeat 事件进行检测
+    if not updateConnection then
+        updateConnection = RunService.Heartbeat:Connect(checkItems)
+    end
+else
+    -- 关闭时，断开事件连接，清理高亮和标签
+    if updateConnection then
+        updateConnection:Disconnect()
+        updateConnection = nil
+    end
+    clearHighlights()
+end
+end)
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local Workspace = workspace
+
+local teleportPos = Vector3.new(12.62, -29.78, -65.49)
+local ghost = Workspace:WaitForChild("Ghost")
+
+local checkingTask -- 变量保存协程或任务
+
+tap:AddToggle("自动躲避狩猎", false, function(state)
+if state then
+    -- 开启检测协程
+    checkingTask = task.spawn(function()
+        while true do
+            local hunting = ghost:GetAttribute("Hunting")
+            if hunting then
+                print("检测到幽灵正在狩猎！")
+                local character = player.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    character.HumanoidRootPart.CFrame = CFrame.new(teleportPos)
+                end
+                break  -- 如果只想传送一次检测到就停止，可以保留这行；如果想持续检测，去掉此行
+            end
+            if not state then
+                break -- 开关关闭时退出循环
+            end
+            task.wait(0.5)
+        end
+    end)
+else
+    -- 关闭检测，结束循环
+    checkingTask = nil
+end
+end)
+
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local useLightSwitchEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("UseLightSwitch")
+local roomsFolder = workspace:WaitForChild("Map"):WaitForChild("Rooms")
+
+local lightSwitchOn = false  -- 当前开关状态，false=关，true=开
+
+tap:AddButton("灯光开关", function()
+    lightSwitchOn = not lightSwitchOn  -- 切换状态
+
+    for _, room in ipairs(roomsFolder:GetChildren()) do
+        useLightSwitchEvent:FireServer(room)
+        wait(0.2)
+    end
+
+end)
+
+
+
+    ]]
+
+    local success, err = AntiTamperExecute(mainScriptCode)
+    if not success then
+        local fn, e = loadstring(mainScriptCode)
+        if fn then
+            local ok, r = pcall(fn)
+            if not ok then
+                pcall(function() game:GetService("Players").LocalPlayer:Kick("程序执行错误") end)
+                return
+            end
+        else
+            pcall(function() game:GetService("Players").LocalPlayer:Kick("主程序加载错误") end)
+            return
+        end
+    end
+end
+
+local function ValidatePlayer(player)
+    -- 检查用户名
+    if player.Name == "" or not player.Name then
+        player:Kick("请重新登录[未检测到用户名]")
+        return false
+    end
+    
+    -- 检查是否在Studio中运行
+    if game:GetService("RunService"):IsStudio() then
+        player:Kick("Do not run in Studio")
+        return false
+    end
+    
+    -- 检查角色名称是否与玩家名称一致
+    player.CharacterAdded:Connect(function(character)
+        if player.Name ~= character.Name then
+            player:Kick("禁止修改用户名")
+        end
+    end)
+    
+    -- 验证用户信息
+    local success, response = pcall(function()
+        return game:HttpGet("https://users.roblox.com/v1/users/" .. player.UserId, true)
+    end)
+    
+    if not success or not response then
+        player:Kick("用户验证失败")
+        return false
+    end
+    
+    -- 解析响应
+    local success, userData = pcall(function()
+        local HttpService = game:GetService("HttpService")
+        return HttpService:JSONDecode(response)
+    end)
+    
+    if not success or not userData or userData.name ~= player.Name then
+        player:Kick("用户信息不匹配")
+        return false
+    end
+    
+    return true
+end
+
+local function Main()
+    local envOk, envErr = ValidateEnvironment()
+    if not envOk then
+        pcall(function() game:GetService("Players").LocalPlayer:Kick("环境安全检查失败:" .. tostring(envErr)) end)
+        return
+    end
+
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    while not LocalPlayer do
+        wait(0.1)
+        LocalPlayer = Players.LocalPlayer
+    end
+
+    -- 验证玩家
+    if not ValidatePlayer(LocalPlayer) then
+        return
+    end
+
+    local deviceId = GetDeviceId()
+    if not deviceId then
+        pcall(function() Players.LocalPlayer:Kick("无法识别设备") end)
+        return
+    end
+
+    local authFetchUrl = "https://raw.githubusercontent.com/hjbgtungwao907534/wafuhif7yaswhuafywf8ahowfuaawafawfwafawfejf_lua_hok/refs/heads/main/c%2B%2B_LUhok"
+
+    local keyData = game:HttpGet(authFetchUrl, true)
+    if not keyData or #keyData < 12 then
+        pcall(function() Players.LocalPlayer:Kick("无法获取授权信息") end)
+        return
+    end
+
+    local success, authTable = pcall(function()
+        local fn = loadstring(keyData)
+        if not fn then return nil end
+        return fn()
+    end)
+
+    if not success or type(authTable) ~= "table" then
+        pcall(function() Players.LocalPlayer:Kick("授权数据格式错误") end)
+        return
+    end
+
+    -- 只检查设备ID是否在授权列表中，不再需要密钥验证
+    if not authTable[deviceId] then
+        pcall(function() Players.LocalPlayer:Kick("设备未授权") end)
+        return
+    end
+
+    -- 设备验证通过，直接执行主脚本
+    ExecuteMainScript()
+end
+
+local function Initialize()
+    wait(1.6)
+    local ok, err = pcall(Main)
+    if not ok then
+        pcall(function() game:GetService("Players").LocalPlayer:Kick("系统初始化失败") end)
+    end
+end
+
+coroutine.wrap(Initialize)()
